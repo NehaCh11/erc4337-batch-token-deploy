@@ -14,5 +14,8 @@
     "hardhat": "^3.1.0",
     "typescript": "~5.8.0"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "ethers": "^6.16.0"
+  }
 }
