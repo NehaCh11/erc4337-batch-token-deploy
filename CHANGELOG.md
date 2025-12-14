@@ -19,3 +19,10 @@ transfer/ approve and transferfrom
 constructor will mint the supply to a provided ownner
 -> the token compiled successfully
 
+Next I will add the Batch Minter Code, a batch minter code as assigned in the assignment description accepts arrays of token configs and deploys many tokens atomically. so probaly we will have to write a contract  that executes above functiosn
+
+batch minter accepted the token configuratuon deploys using a for loop where it assigns the initital suuply to the caller which wull be the future smart account
+
+
+After this, I proceeded on writing the test that can see if the batch logic works or not  the goal of the test will be to call the BatchMinter,deployBatch and deplit 3 tokens, after that we wil veriy if token addresses are retuener and initial suply is minted to caller or not
+so adding this file test/BatchMinter.test.ts
