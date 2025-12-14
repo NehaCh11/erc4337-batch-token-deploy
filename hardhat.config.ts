@@ -3,5 +3,13 @@ import hardhatToolboxMochaEthers from "@nomicfoundation/hardhat-toolbox-mocha-et
 
 export default defineConfig({
   plugins: [hardhatToolboxMochaEthers],
-  solidity: "0.8.28",
+  solidity: {
+    version: "0.8.28",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200,
+      },
+    },
+  },
 });
