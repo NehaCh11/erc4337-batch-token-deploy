@@ -38,6 +38,98 @@ function App() {
     setTokens(newTokens)
   }
 
+  //switch to hardhat local network
+  const switchToHardhatNetwork = async () => {
+    try {
+      if (!window.ethereum) {
+        setStatus('error: MetaMask not installed')
+        return
+      }
+
+      const chainId = '0x7A69' // 31337 in hex
+      
+      try {
+        // Try to switch to the network
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: chainId }],
+        })
+        setStatus('switched to Hardhat local network')
+      } catch (switchError) {
+        // This error code indicates that the chain has not been added to MetaMask
+        if (switchError.code === 4902) {
+          try {
+            // Add the network
+            await window.ethereum.request({
+              method: 'wallet_addEthereumChain',
+              params: [{
+                chainId: chainId,
+                chainName: 'Hardhat Local',
+                nativeCurrency: {
+                  name: 'ETH',
+                  symbol: 'ETH',
+                  decimals: 18
+                },
+                rpcUrls: ['http://127.0.0.1:8545'],
+                blockExplorerUrls: null
+              }],
+            })
+            setStatus('added and switched to Hardhat local network')
+          } catch (addError) {
+            setStatus('error: Could not add network. Please add manually: Network Name: Hardhat Local, RPC: http://127.0.0.1:8545, Chain ID: 31337')
+          }
+        } else {
+          setStatus('error: Could not switch network: ' + switchError.message)
+        }
+      }
+    } catch (error) {
+      setStatus('error: ' + error.message)
+    }
+  }
+
+  //check setup before sending
+  const checkSetup = async () => {
+    try {
+      setStatus('checking setup...')
+      
+      if (!window.ethereum) {
+        setStatus('error: MetaMask not installed')
+        return
+      }
+      
+      const provider = new ethers.BrowserProvider(window.ethereum)
+      const network = await provider.getNetwork()
+      const chainId = Number(network.chainId)
+      
+      if (!accountAddr || !entryPointAddr || !batchMinterAddr) {
+        setStatus('error: Please fill in all contract addresses')
+        return
+      }
+      
+      const entryPointCode = await provider.getCode(entryPointAddr)
+      const accountCode = await provider.getCode(accountAddr)
+      const batchMinterCode = await provider.getCode(batchMinterAddr)
+      
+      if (entryPointCode === '0x') {
+        setStatus('error: EntryPoint not found at ' + entryPointAddr)
+        return
+      }
+      if (accountCode === '0x') {
+        setStatus('error: Account not found at ' + accountAddr)
+        return
+      }
+      if (batchMinterCode === '0x') {
+        setStatus('error: BatchMinter not found at ' + batchMinterAddr)
+        return
+      }
+      
+      setStatus('✓ Setup OK! Network: ' + chainId + ', all contracts found')
+    } catch (error) {
+      setStatus('error: ' + error.message)
+      console.error(error)
+    }
+  }
+
   //build and send userop
   const sendUserOp = async () => {
     try {
@@ -56,6 +148,17 @@ function App() {
       //check addresses are set
       if (!accountAddr || !entryPointAddr || !batchMinterAddr) {
         setStatus('need to set account, entrypoint, and batchminter addresses')
+        return
+      }
+
+      //check if signer matches account owner
+      setStatus('checking if signer matches account owner...')
+      const accountOwnerAbi = ["function owner() external view returns (address)"]
+      const accountOwnerContract = new ethers.Contract(accountAddr, accountOwnerAbi, provider)
+      const accountOwner = await accountOwnerContract.owner()
+      setStatus('account owner: ' + accountOwner + ', your address: ' + deployer)
+      if (accountOwner.toLowerCase() !== deployer.toLowerCase()) {
+        setStatus('error: Your MetaMask address (' + deployer + ') does not match the Account owner (' + accountOwner + '). SOLUTION: Switch to the Hardhat account in MetaMask - Click the account icon (top right) and select the account that starts with 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266')
         return
       }
 
@@ -92,29 +195,49 @@ function App() {
       setStatus('wrapped in account.execute')
 
       //check network first
-      const network = await provider.getNetwork()
-      setStatus('connected to network: chainId=' + network.chainId)
+      const networkInfo = await provider.getNetwork()
+      const currentChainId = Number(networkInfo.chainId)
+      setStatus('connected to network: chainId=' + currentChainId)
       
       //verify contract addresses exist
+      setStatus('checking EntryPoint at ' + entryPointAddr + '...')
       const entryPointCode = await provider.getCode(entryPointAddr)
       if (entryPointCode === '0x') {
-        setStatus('error: EntryPoint contract not found at ' + entryPointAddr + '. Make sure you are on the correct network (Hardhat local network, chainId 31337)')
+        setStatus('error: EntryPoint contract not found at ' + entryPointAddr + ' on chainId ' + currentChainId + '. Make sure MetaMask is connected to Hardhat local network (chainId 31337, RPC: http://127.0.0.1:8545) and contracts are deployed.')
         return
       }
       
+      setStatus('checking Account at ' + accountAddr + '...')
       const accountCode = await provider.getCode(accountAddr)
       if (accountCode === '0x') {
-        setStatus('error: Account contract not found at ' + accountAddr)
+        setStatus('error: Account contract not found at ' + accountAddr + '. Did you deploy?')
+        return
+      }
+      
+      setStatus('checking BatchMinter at ' + batchMinterAddr + '...')
+      const batchMinterCode = await provider.getCode(batchMinterAddr)
+      if (batchMinterCode === '0x') {
+        setStatus('error: BatchMinter contract not found at ' + batchMinterAddr + '. Did you deploy?')
         return
       }
 
       //get nonce from entrypoint
       const entryPointAbi = [
         "function getNonce(address sender, uint192 key) external view returns (uint256)",
+        "function balanceOf(address account) external view returns (uint256)",
         "function handleOps(tuple(address sender, uint256 nonce, bytes initCode, bytes callData, bytes32 accountGasLimits, uint256 preVerificationGas, bytes32 gasFees, bytes paymasterAndData, bytes signature)[] userOps, address beneficiary) external"
       ]
       const entryPoint = new ethers.Contract(entryPointAddr, entryPointAbi, provider)
       const key = 0n
+      
+      //check if account has balance deposited in EntryPoint
+      setStatus('checking account balance in EntryPoint...')
+      const balance = await entryPoint.balanceOf(accountAddr)
+      setStatus('account balance in EntryPoint: ' + ethers.formatEther(balance) + ' ETH')
+      if (balance === 0n) {
+        setStatus('error: Account has no balance deposited in EntryPoint. Need to deposit ETH first for gas prefunding.')
+        return
+      }
       
       setStatus('calling getNonce...')
       const nonce = await entryPoint.getNonce(accountAddr, key)
@@ -143,11 +266,10 @@ function App() {
       setStatus('built userop, signing...')
 
       //build eip712 domain and types
-      const chainId = (await provider.getNetwork()).chainId
       const domain = {
         name: "ERC4337",
         version: "1",
-        chainId: chainId,
+        chainId: currentChainId,
         verifyingContract: entryPointAddr
       }
 
@@ -179,12 +301,47 @@ function App() {
       const signature = await signer.signTypedData(domain, types, message)
       userOp.signature = signature
       setStatus('signed userop')
+      
+      //verify userOpHash matches EntryPoint's computation
+      setStatus('verifying userOpHash...')
+      const entryPointAbiForHash = [
+        "function getUserOpHash(tuple(address sender, uint256 nonce, bytes initCode, bytes callData, bytes32 accountGasLimits, uint256 preVerificationGas, bytes32 gasFees, bytes paymasterAndData, bytes signature) calldata userOp) external view returns (bytes32)"
+      ]
+      const entryPointForHash = new ethers.Contract(entryPointAddr, entryPointAbiForHash, provider)
+      const userOpHash = await entryPointForHash.getUserOpHash(userOp)
+      setStatus('userOpHash from EntryPoint: ' + userOpHash)
 
       //send to entrypoint
       setStatus('sending to entrypoint.handleOps...')
       const entryPointWithSigner = entryPoint.connect(signer)
-      const tx = await entryPointWithSigner.handleOps([userOp], deployer)
-      setStatus('tx sent: ' + tx.hash + ', waiting for confirmation...')
+      
+      //try to simulate first to catch errors
+      try {
+        setStatus('simulating transaction...')
+        await entryPointWithSigner.handleOps.estimateGas([userOp], deployer)
+        setStatus('simulation passed, sending transaction...')
+      } catch (simError) {
+        setStatus('error: Transaction simulation failed: ' + simError.message)
+        if (simError.data) {
+          setStatus('error details: ' + JSON.stringify(simError.data))
+        }
+        return
+      }
+      
+      let tx
+      try {
+        tx = await entryPointWithSigner.handleOps([userOp], deployer)
+        setStatus('tx sent: ' + tx.hash + ', waiting for confirmation...')
+      } catch (txError) {
+        setStatus('error: Failed to send transaction: ' + txError.message)
+        if (txError.data) {
+          setStatus('error details: ' + JSON.stringify(txError.data))
+        }
+        if (txError.reason) {
+          setStatus('revert reason: ' + txError.reason)
+        }
+        return
+      }
 
       const receipt = await tx.wait()
       setStatus('tx confirmed in block ' + receipt.blockNumber)
@@ -310,6 +467,12 @@ function App() {
       </div>
 
       <div>
+        <button onClick={switchToHardhatNetwork} style={{marginRight: '10px', backgroundColor: '#f0ad4e', color: 'white'}}>
+          Switch to Hardhat Network
+        </button>
+        <button onClick={checkSetup} style={{marginRight: '10px'}}>
+          Check Setup
+        </button>
         <button onClick={sendUserOp} disabled={tokens.length === 0}>
           Build and Send UserOp
         </button>
