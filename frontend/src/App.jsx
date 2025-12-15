@@ -91,6 +91,23 @@ function App() {
       ])
       setStatus('wrapped in account.execute')
 
+      //check network first
+      const network = await provider.getNetwork()
+      setStatus('connected to network: chainId=' + network.chainId)
+      
+      //verify contract addresses exist
+      const entryPointCode = await provider.getCode(entryPointAddr)
+      if (entryPointCode === '0x') {
+        setStatus('error: EntryPoint contract not found at ' + entryPointAddr + '. Make sure you are on the correct network (Hardhat local network, chainId 31337)')
+        return
+      }
+      
+      const accountCode = await provider.getCode(accountAddr)
+      if (accountCode === '0x') {
+        setStatus('error: Account contract not found at ' + accountAddr)
+        return
+      }
+
       //get nonce from entrypoint
       const entryPointAbi = [
         "function getNonce(address sender, uint192 key) external view returns (uint256)",
@@ -98,6 +115,8 @@ function App() {
       ]
       const entryPoint = new ethers.Contract(entryPointAddr, entryPointAbi, provider)
       const key = 0n
+      
+      setStatus('calling getNonce...')
       const nonce = await entryPoint.getNonce(accountAddr, key)
       setStatus('got nonce: ' + nonce.toString())
 
@@ -272,22 +291,6 @@ function App() {
           />
         </div>
         <button onClick={addToken}>Add Token</button>
-      </div>
-
-      <div>
-        <h2>Token List ({tokens.length})</h2>
-        {tokens.length === 0 ? (
-          <p>no tokens added yet</p>
-        ) : (
-          <ul>
-            {tokens.map((token, index) => (
-              <li key={index}>
-                {token.name} ({token.symbol}) - {token.supply} tokens
-                <button onClick={() => removeToken(index)}>Remove</button>
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
 
       <div>
